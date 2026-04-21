@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice Kirby Adventure</title>
+    <title>GAME 1</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         canvas { display: block; }
@@ -18,13 +18,13 @@
 
         #death-screen {
             background: rgba(180, 0, 0, 0.5);
-            backdrop-filter: blur(15px); /* Blur leggermente aumentato */
+            backdrop-filter: blur(10px);
             color: white;
         }
 
         #win-screen {
             background: rgba(0,0,0,0.4);
-            backdrop-filter: blur(15px);
+            backdrop-filter: blur(12px);
             color: white;
             animation: oscillate 3s infinite ease-in-out;
         }
@@ -52,12 +52,12 @@
 
     <div id="death-screen">
         <h1 style="font-size: 70px; margin: 0; text-shadow: 3px 3px #000;">HAI PERSO</h1>
-        <button id="retry-btn" class="btn">RIPROVA</button>
+        <button onclick="location.reload()" class="btn">RIPROVA</button>
     </div>
 
     <div id="win-screen">
         <h1 style="font-size: 80px; margin: 0; text-shadow: 4px 4px #000;">HAI VINTO!</h1>
-        <div class="hint">INDIZIO: 🗣️🦁</div>
+        <div class="hint">IL TUO INDIZIO:🗣️🦁</div>
     </div>
 
     <audio id="bg-audio" loop>
@@ -71,8 +71,6 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const startBtn = document.getElementById('start-btn');
-        const retryBtn = document.getElementById('retry-btn');
-        const uiLayer = document.getElementById('ui-layer');
         const deathScreen = document.getElementById('death-screen');
         const winScreen = document.getElementById('win-screen');
         const bgAudio = document.getElementById('bg-audio');
@@ -89,7 +87,6 @@
         let targetY = window.innerHeight / 2;
         const playerX = 150;
         const playerSize = 90;
-        let spawnTimeouts = [];
 
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
@@ -104,7 +101,7 @@
             draw() {
                 ctx.fillStyle = "#2ecc71";
                 ctx.strokeStyle = "#000";
-                ctx.lineWidth = 1.5;
+                ctx.lineWidth = 3;
                 ctx.fillRect(this.x, 0, this.width, this.topHeight);
                 ctx.strokeRect(this.x, 0, this.width, this.topHeight);
                 ctx.fillRect(this.x, this.topHeight + this.gap, this.width, canvas.height);
@@ -114,7 +111,6 @@
         }
 
         async function initAudio() {
-            if (audioContext) return; 
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -126,60 +122,24 @@
             } catch (err) { alert("Accesso al microfono negato!"); }
         }
 
-        // Torna alla schermata iniziale
-        function backToStart() {
-            spawnTimeouts.forEach(t => clearTimeout(t));
-            spawnTimeouts = [];
-            pipes = [];
-            trophy = null;
-            gameRunning = false;
-            
-            // Ripulisci il canvas e mostra il menù
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(imgBg, 0, 0, canvas.width, canvas.height);
-            
-            deathScreen.style.display = 'none';
-            winScreen.style.display = 'none';
-            uiLayer.style.display = 'flex';
-            
-            bgAudio.pause();
-            bgAudio.currentTime = 0;
-        }
-
-        function startGame() {
-            uiLayer.style.display = 'none';
-            playerY = canvas.height / 2;
-            gameRunning = true;
-            bgAudio.play();
-            spawnTimeline();
-            gameLoop();
-        }
-
         function spawnTimeline() {
             let startX = canvas.width + 500;
-            let t1 = setTimeout(() => {
+            setTimeout(() => {
                 if(!gameRunning) return;
                 for(let i=0; i<10; i++) {
                     pipes.push(new Pipe(startX + (i * 1200)));
                 }
                 
-                let t2 = setTimeout(() => {
+                setTimeout(() => {
                     if(!gameRunning) return;
-                    let lastX = pipes.length > 0 ? pipes[pipes.length-1].x : startX;
+                    let lastX = pipes[pipes.length-1].x;
                     for(let j=1; j<=3; j++) {
                         pipes.push(new Pipe(lastX + 1500 + (j * 450)));
                     }
-                    
-                    trophy = { 
-                        x: lastX + 3800, 
-                        y: canvas.height/2 - 150, 
-                        w: 300, 
-                        h: 300 
-                    };
-                }, 8000);
-                spawnTimeouts.push(t2);
+                    // Inizializza il trofeo
+                    trophy = { x: lastX + 3800, w: 300, h: 300 };
+                }, 8000); 
             }, 5000);
-            spawnTimeouts.push(t1);
         }
 
         function gameOver() {
@@ -199,15 +159,13 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(imgBg, 0, 0, canvas.width, canvas.height);
 
-            if (analyser) {
-                analyser.getByteFrequencyData(dataArray);
-                let sum = 0;
-                for(let i=0; i<dataArray.length; i++) sum += dataArray[i];
-                let volume = sum / dataArray.length;
-                let sensitivity = canvas.height / 75;
-                targetY = canvas.height - (volume * sensitivity) - playerSize;
-            }
-            
+            analyser.getByteFrequencyData(dataArray);
+            let sum = 0;
+            for(let i=0; i<dataArray.length; i++) sum += dataArray[i];
+            let volume = sum / dataArray.length;
+
+            let sensitivity = canvas.height / 75;
+            targetY = canvas.height - (volume * sensitivity) - playerSize;
             targetY = Math.max(20, Math.min(canvas.height - playerSize - 20, targetY));
             playerY += (targetY - playerY) * 0.15; 
 
@@ -230,12 +188,14 @@
             if(trophy) {
                 trophy.x -= 7;
                 ctx.save();
-                ctx.shadowBlur = 60;
+                ctx.shadowBlur = 50;
                 ctx.shadowColor = "yellow";
-                ctx.drawImage(imgTrophy, trophy.x, trophy.y, trophy.w, trophy.h);
+                // Disegnato al centro dello schermo
+                ctx.drawImage(imgTrophy, trophy.x, canvas.height/2 - 150, trophy.w, trophy.h);
                 ctx.restore();
 
-                if(playerX + playerSize > trophy.x + 50 && playerX < trophy.x + trophy.w) {
+                // Vittoria assicurata appena si raggiunge la coordinata del trofeo
+                if(playerX + playerSize > trophy.x + 50) {
                     win();
                 }
             }
@@ -245,17 +205,12 @@
 
         startBtn.addEventListener('click', async () => {
             await initAudio();
-            startGame();
+            document.getElementById('ui-layer').style.display = 'none';
+            bgAudio.play();
+            gameRunning = true;
+            spawnTimeline();
+            gameLoop();
         });
-
-        retryBtn.addEventListener('click', () => {
-            backToStart();
-        });
-
-        // Inizializzazione sfondo
-        imgBg.onload = () => {
-            ctx.drawImage(imgBg, 0, 0, canvas.width, canvas.height);
-        };
     </script>
 </body>
 </html>
