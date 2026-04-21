@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>GAME 1</title>
+    <style>
+        body, html { margin: 0; padding: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        canvas { display: block; }
+        .overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; justify-content: center;
+            align-items: center; z-index: 100; text-align: center; color: white;
+        }
+        #ui-start { background: rgba(0,0,0,0.8); cursor: pointer; }
+        #ui-win, #ui-lose { display: none; backdrop-filter: blur(15px); }
+        #ui-win h1 { 
+            font-size: 80px; color: gold; 
+            animation: oscillate 1.5s ease-in-out infinite; 
+        }
+        @keyframes oscillate {
+            0%, 100% { transform: translateX(-40px); }
+            50% { transform: translateX(40px); }
+        }
+        .btn {
+            background: #ff69b4; color: white; padding: 20px 50px;
+            border-radius: 50px; font-size: 25px; border: none; cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <audio id="bgMusic" loop>
+        <source src="https://github.com/TheFisp/GAME-1/blob/main/Kirby%20Theme.mp3" type="audio/mpeg">
+    </audio>
+
+    <div id="ui-start" class="overlay" onclick="startSystem()">
+        <h1>GAME 1</h1>
+        <button class="btn">🎤 CLICCA PER INIZIARE</button>
+        <p>Usa la voce per volare!</p>
+    </div>
+
+    <div id="ui-win" class="overlay">
+        <h1>HAI VINTO!</h1>
+        <p style="font-size: 40px;">Il tuo indizio: 🗣️🦁</p>
+    </div>
+
+    <div id="ui-lose" class="overlay">
+        <h1 style="font-size: 60px; color: red;">GAME OVER</h1>
+        <p id="death-msg"></p>
+        <button class="btn" onclick="location.reload()">🔄 RIPROVA</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const music = document.getElementById('bgMusic');
+
+        // --- IMPOSTAZIONI GESTIBILI ---
+        const PIPE_SPEED = 4;
+        const PIPE_GAP = 700;      // Spazio verticale tra i tubi
+        const PIPE_WIDTH = 90;
+        const SMOOTHING = 0.12;    // PIÙ BASSO = PIÙ FLUIDO (0.05 - 0.2)
+        const SENSITIVITY = 1.8;   // Reattività al volume
+        const MIN_VOLUME = 5;      // Ignora i rumori di fondo leggeri
+
+        // --- ASSETS BASE64 (Inserisci i tuoi qui) ---
+        let imgPlayer = new Image();
+        imgPlayer.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="; // Placeholder
+        let imgBG = new Image();
+        imgBG.src = ""; 
+        let imgTrophy = new Image();
+        imgTrophy.src = "";
+
+        // --- STATO GIOCO ---
+        let bird = { x: 150, y: 0, w: 60, h: 60, currentY: 0 };
+        let pipes = [];
+        let trophy = { x: 0, y: 0, active: false, passed: false };
+        let wall = { x: 0, active: false };
+        let gameActive = false;
+        let frame = 0;
+        let pipeCounter = 0;
+        let gameState = "WAITING"; // WAITING, PHASE1, PAUSE, PHASE2, TROPHY
+
+        let audioContext, analyser, dataArray;
+
+        async function startSystem() {
+            if (audioContext) return;
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioContext = new AudioContext();
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                const source = audioContext.createMediaStreamSource(stream);
+                source.connect(analyser);
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                
+                document.getElementById('ui-start').style.display = 'none';
+                music.play();
+                
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                bird.currentY = canvas.height - 100;
+                gameActive = true;
+
+                // Sequenza temporale richiesta
+                setTimeout(() => { gameState = "PHASE1"; }, 6000); 
+
+                requestAnimationFrame(loop);
+            } catch (e) { alert("Attiva il microfono per giocare!"); }
+        }
+
+        function spawnPipe() {
+            const minH = 100;
+            const range = canvas.height - PIPE_GAP - (minH * 2);
+            const top = minH + Math.random() * range;
+            pipes.push({ x: canvas.width, top: top, passed: false });
+            pipeCounter++;
+        }
+
+        function loop() {
+            if (!gameActive) return;
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        function update() {
+            // 1. ANALISI VOLUME
+            analyser.getByteFrequencyData(dataArray);
+            let sum = 0;
+            for(let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+            let volume = sum / dataArray.length;
+
+            // 2. MOVIMENTO FLUIDO (Interpolazione)
+            let volNorm = Math.max(0, volume - MIN_VOLUME) * SENSITIVITY;
+            let targetY = canvas.height - (volNorm * (canvas.height / 100)) - bird.h;
+            
+            // Limiti bordi
+            targetY = Math.max(0, Math.min(canvas.height - bird.h, targetY));
+            
+            // L'anima della fluidità: lerp
+            bird.currentY += (targetY - bird.currentY) * SMOOTHING;
+
+            // 3. GESTIONE FASI
+            if (gameState === "PHASE1") {
+                if (frame % 120 === 0) spawnPipe();
+                if (pipeCounter >= 10) {
+                    gameState = "PAUSE";
+                    setTimeout(() => { gameState = "PHASE2"; pipeCounter = 0; }, 5000);
+                }
+            } else if (gameState === "PHASE2") {
+                if (frame % 45 === 0) spawnPipe(); // Rapida successione
+                if (pipeCounter >= 3) {
+                    gameState = "TROPHY_WAIT";
+                    setTimeout(() => { 
+                        trophy.active = true; 
+                        trophy.x = canvas.width; 
+                        trophy.y = canvas.height / 2;
+                    }, 2000);
+                }
+            }
+
+            // 4. MOVIMENTO OSTACOLI E COLLISIONI
+            pipes.forEach((p, i) => {
+                p.x -= PIPE_SPEED;
+                // Collisione
+                if (bird.x + bird.w > p.x && bird.x < p.x + PIPE_WIDTH) {
+                    if (bird.currentY < p.top || bird.currentY + bird.h > p.top + PIPE_GAP) {
+                        endGame(false, "Hai colpito un tubo!");
+                    }
+                }
+            });
+            pipes = pipes.filter(p => p.x > -PIPE_WIDTH);
+
+            // 5. TROFEO E MURO FINALE
+            if (trophy.active) {
+                trophy.x -= PIPE_SPEED;
+                // Collisione trofeo
+                let dX = (bird.x + bird.w/2) - (trophy.x + 30);
+                let dY = (bird.currentY + bird.h/2) - (trophy.y + 30);
+                if (Math.sqrt(dX*dX + dY*dY) < 50) endGame(true);
+
+                if (trophy.x < bird.x - 200 && !trophy.passed) {
+                    trophy.passed = true;
+                    wall.active = true;
+                    wall.x = canvas.width;
+                }
+            }
+
+            if (wall.active) {
+                wall.x -= PIPE_SPEED * 1.5;
+                if (bird.x + bird.w > wall.x) endGame(false, "Troppo lento! Il muro ti ha schiacciato :)");
+            }
+
+            frame++;
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // BG
+            if(imgBG.src) ctx.drawImage(imgBG, 0, 0, canvas.width, canvas.height);
+            else { ctx.fillStyle = "#111"; ctx.fillRect(0,0,canvas.width, canvas.height); }
+
+            // Tubi
+            ctx.fillStyle = "#ff69b4";
+            pipes.forEach(p => {
+                ctx.fillRect(p.x, 0, PIPE_WIDTH, p.top);
+                ctx.fillRect(p.x, p.top + PIPE_GAP, PIPE_WIDTH, canvas.height);
+            });
+
+            // Muro spine
+            if (wall.active) {
+                ctx.fillStyle = "red";
+                ctx.fillRect(wall.x, 0, 50, canvas.height);
+                for(let i=0; i<canvas.height; i+=30) {
+                    ctx.beginPath();
+                    ctx.moveTo(wall.x, i);
+                    ctx.lineTo(wall.x - 20, i + 15);
+                    ctx.lineTo(wall.x, i + 30);
+                    ctx.fill();
+                }
+            }
+
+            // Trofeo
+            if (trophy.active) {
+                if(imgTrophy.src) ctx.drawImage(imgTrophy, trophy.x, trophy.y, 60, 60);
+                else { ctx.fillStyle = "gold"; ctx.beginPath(); ctx.arc(trophy.x+30, trophy.y+30, 30, 0, Math.PI*2); ctx.fill(); }
+            }
+
+            // Player
+            ctx.drawImage(imgPlayer, bird.x, bird.currentY, bird.w, bird.h);
+        }
+
+        function endGame(win, msg) {
+            gameActive = false;
+            if (win) {
+                document.getElementById('ui-win').style.display = 'flex';
+                confetti({ particleCount: 200, spread: 70, origin: { y: 0.6 } });
+            } else {
+                document.getElementById('death-msg').innerText = msg;
+                document.getElementById('ui-lose').style.display = 'flex';
+            }
+        }
+    </script>
+</body>
+</html>
